@@ -45,17 +45,18 @@ if __name__ == '__main__':
 	# set a 10Hz frequency for this loop
 	loop_rate = rospy.Rate(10)
 
-	
+	# add listener 
+	tfBuffer = tf2_ros.Buffer()
+	listener = tf2_ros.TransformListener(tfBuffer)
+		
 	# intitialize Quaternion message
 	q_rot = Quaternion()
 	while not rospy.is_shutdown():
-		# add listener 
-		tfBuffer = tf2_ros.Buffer()
-		listener = tf2_ros.TransformListener(tfBuffer)
 		try:
 			trans = tfBuffer.lookup_transform("base","camera_color_optical_frame", rospy.Time())
 		except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
 			print('Frames not available')
+			loop_rate.sleep()
 			continue
 
 		# define target point for tooltip 
