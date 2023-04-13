@@ -17,15 +17,20 @@ from tf2_geometry_msgs import PointStamped
 
 
 sphere_params = SphereParams()
+
+#initialize values
 sphere_x = 0
 sphere_y = 0
 sphere_z = 0
 radius = 0
 current_pos = [0] * 6
+
+#initialize flags
 initialized = False
 received_params = False
 
 def get_sphere_params(data):
+'''gets sphere x,y,z,radius values'''
 	global sphere_params
 	global received_params
 	global sphere_x
@@ -42,6 +47,7 @@ def get_sphere_params(data):
 
 
 def get_position(data):
+'''gets linear and angular position of robot from toolpose'''
 	global current_pos
 	global initialized 
 	
@@ -55,6 +61,7 @@ def get_position(data):
 	initialized = True
 	
 def make_plan(linx, liny, linz, angx, angy, angz):
+'''creates plan points and appends to plan points'''
 	plan_point = Twist()
 	
 	plan_point.linear.x = linx
@@ -85,9 +92,10 @@ if __name__ == '__main__':
 		
 	# intitialize Quaternion message
 	q_rot = Quaternion()
+	
+	#initialize flag for checking to see if plan has been created
 	planned = False
 	while not rospy.is_shutdown():
-		print(planned, initialized, received_params)
 		if initialized and received_params and not planned:
 			try:
 				trans = tfBuffer.lookup_transform("base","camera_color_optical_frame", rospy.Time())
@@ -100,7 +108,6 @@ if __name__ == '__main__':
 			pt_in_camera = PointStamped()
 			pt_in_camera.header.frame_id = 'camera_color_optical_frame'
 			pt_in_camera.header.stamp = rospy.get_rostime()
-			
 			pt_in_camera.point.x = sphere_x
 			pt_in_camera.point.y = sphere_y
 			pt_in_camera.point.z = sphere_z
@@ -117,6 +124,7 @@ if __name__ == '__main__':
 			pitch = 0
 			yaw = 1.57
 			z_offset = .05
+			
 			# define a plan variable
 			plan = Plan()
 			plan_point1 = Twist()
@@ -128,6 +136,7 @@ if __name__ == '__main__':
 			make_plan(-0.792, 0.15, 0.363, roll, pitch, yaw)
 			make_plan(-0.792, 0.15, 0.15,roll, pitch, yaw)
 			
+			# set flag to true
 			planned = True
 		
 			# publish the plan
