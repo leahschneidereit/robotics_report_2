@@ -1,137 +1,73 @@
 #!/usr/bin/env python3
 
+#!/usr/bin/env python3
 import rospy
-import math
+import numpy as np
+import cv2
+from cv_bridge import CvBridge
+from sensor_msgs.msg import Image
 
-#import messages
-import tf2_ros
-from tf.transformations import *
+#initialize flag
+img_received = False
 
-#import plan and twist message
-from ur5e_control.msg import Plan
-from geometry_msgs.msg import Twist
-from robot_vision_lectures.msg import SphereParams
-from geometry_msgs.msg import Quaternion
-from tf2_geometry_msgs import PointStamped
+# define a 720x1280 3-channel image with all pixels equal to zero
+rgb_img = np.zeros((720, 1280, 3), dtype = "uint8")
 
+# get the image message
+def get_image(ros_img):
+	global rgb_img
+	global img_received
+	# convert to opencv image
+	rgb_img = CvBridge().imgmsg_to_cv2(ros_img, "rgb8")
+	# raise flag
+	img_received = True
 
-
-sphere_params = SphereParams()
-sphere_x = 0
-sphere_y = 0
-sphere_z = 0
-radius = 0
-current_pos = [0] * 6
-initialized = False
-received_params = False
-
-def get_sphere_params(data):
-	global sphere_params
-	global received_params
-	global sphere_x
-	global sphere_y
-	global sphere_z
+def img_processing(hsv, lower_yellow_hsv, upper_yellow_hsv):
+	mask_ball = cv2.inRange(hsv, lower_yellow_hsv, 	upper_yellow_hsv)
+	masked_image = cv2.bitwise_and(mask, mask, mask=mask_ball)
 	
-	received_params = True
-	
-	sphere_x = data.xc
-	sphere_y = data.yc
-	sphere_z = data.zc
-	sphere_radius = data.radius
-	print(received_params)
-
-
-def get_position(data):
-	global current_pos
-	global initialized 
-	
-	current_pos[0] = data.linear.x
-	current_pos[1] = data.linear.y
-	current_pos[2] = data.linear.z
-	current_pos[3] = data.angular.x
-	current_pos[4] = data.angular.y
-	current_pos[5] = data.angular.z
-	
-	initialized = True
-	
-def make_plan(linx, liny, linz, angx, angy, angz):
-	plan_point = Twist()
-	
-	plan_point.linear.x = linx
-	plan_point.linear.y = liny
-	plan_point.linear.z = linz
-	plan_point.angular.x = angx
-	plan_point.angular.y = angy
-	plan_point.angular.z = angz
-	
-	return plan.points.append(plan_point)
-
+	return masked_image
 	
 if __name__ == '__main__':
-	# initialize node
-	rospy.init_node('simple_planner', anonymous = True)
-	# subsriber to get sphere params
-	sphere_sub = rospy.Subscriber('/sphere_params', SphereParams, get_sphere_params)
-	# add publisher for sending joint position commands
-	plan_pub = rospy.Publisher('/plan', Plan, queue_size = 10)
-	# add subscriber for receiving information from driver
-	loc_sub = rospy.Subscriber('/ur5e/toolpose', Twist, get_position)
-	# set a 10Hz frequency for this loop
-	loop_rate = rospy.Rate(10)
-
-	# add listener 
-	tfBuffer = tf2_ros.Buffer()
-	listener = tf2_ros.TransformListener(tfBuffer)
-		
-	# intitialize Quaternion message
-	q_rot = Quaternion()
-	planned = False
-	while not rospy.is_shutdown():
-		print(planned, initialized, received_params)
-		if initialized and received_params and not planned:
-			try:
-				trans = tfBuffer.lookup_transform("base","camera_color_optical_frame", rospy.Time())
-			except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
-				print('Frames not available')
-				loop_rate.sleep()
-				continue
+	# define the node and subcribers and publishers
+	rospy.init_node('flip_image', anonymous = True)
+	# define a subscriber to ream images
+	img_sub = rospy.Subscriber("/camera/color/image_raw", Image, get_image) 
+	# define a publisher to publish images
+	img_pub = rospy.Publisher('/ball_2D', Image, queue_size = 1)
 	
-			# define target point for tooltip 
-			pt_in_camera = PointStamped()
-			pt_in_camera.header.frame_id = 'camera_color_optical_frame'
-			pt_in_camera.header.stamp = rospy.get_rostime()
-			
-			pt_in_camera.point.x = sphere_x
-			pt_in_camera.point.y = sphere_y
-			pt_in_camera.point.z = sphere_z
+	# set the loop frequency
+	rate = rospy.Rate(10)
+
+	while not rospy.is_shutdown():
+		# make sure we process if the camera has started streaming images
+		if img_received:
+			#initialize variables for mask
+			height = 720
+			width = 1280
+			mask = np.zeros((height, width), dtype = np.uint8)
+			x1, y1 = 320, 180
+			x2, y2 = 960,540
 		
-			#convert to base frame coordinates
-			pt_in_base = tfBuffer.transform(pt_in_camera, 'base', rospy.Duration(1.0))
-			x = pt_in_base.point.x
-			y = pt_in_base.point.y
-			z = pt_in_base.point.z
-			r = sphere_params.radius
+			#initialize hsv array
+			hsv = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2HSV)
+			
+			#create mask
+			cv2.rectangle(mask, (x1,y1), (x2,y2), (255,255,255), -1)
 		
-			# define roll, pitch, yaw values
-			roll = 3.14 
-			pitch = 0
-			yaw = 1.57
-			z_offset = .05
-			# define a plan variable
-			plan = Plan()
-			plan_point1 = Twist()
+			# create arry for upper and lower hsv bounds 
+			lower_yellow_hsv = np.array([25,1,1])
+			upper_yellow_hsv = np.array([60,255,255])
 			
-			# add points to plan
-			make_plan(current_pos[0],current_pos[1], current_pos[2], roll, pitch, yaw)
-			make_plan(x,y,z+.3, roll, pitch, yaw)
-			make_plan(x,y,z + z_offset, roll, pitch, yaw)
-			make_plan(-0.792, 0.15, 0.363, roll, pitch, yaw)
-			make_plan(-0.792, 0.15, 0.15,roll, pitch, yaw)
-			
-			planned = True
+			masked_image = img_processing(hsv, lower_yellow_hsv, upper_yellow_hsv)
 		
-			# publish the plan
-			plan_pub.publish(plan)
 			
-		# wait for 0.1 seconds until the next loop and repeat
-		loop_rate.sleep()
+			# convert to ros msg and publish it
+			img_msg = CvBridge().cv2_to_imgmsg(masked_image, encoding="mono8")
+			
+			# publish the image
+			img_pub.publish(img_msg)
+			
+
+		# pause until the next iteration			
+		rate.sleep()
